@@ -67,50 +67,40 @@ docker_tag_push() {
 
 ## Nudges
 
-Once you have functions, install a hook so histmine reminds you to use them. When you type the long form of something it has already mined, it prints the short form with your real arguments filled in:
+`histmine install` mines your history, saves the functions where your shell autoloads them, and installs a hook. After that, when you type the long form of something it mined, it prints the short form with your real arguments filled in:
 
 ```
 $ git push origin main
 histmine: simplified to `git_push` -> try: git_push main
 ```
 
-```bash
-histmine --install-hook            # detects your shell from $SHELL
-histmine --install-hook --shell zsh
-histmine --print-hook              # just print the snippet, install nothing
-```
-
-The hook only fires for functions you have actually defined, so it never points at something that does not exist. It works in fish and zsh via `preexec` (shown before the command runs) and in bash via `PROMPT_COMMAND` (shown right after, since bash has no native full-line preexec). Each mining run refreshes a small manifest at `~/.local/share/histmine/manifest.tsv` that the hook matches against.
+The hook fires only for functions that are actually defined, so it never points at something that does not exist (fish/zsh nudge before the command via `preexec`, bash just after via `PROMPT_COMMAND`). `histmine uninstall` reverses all of it.
 
 ---
 
 ## Usage
 
 ```bash
-# Mine the default fish history, print the top 25 functions
-histmine
+# One-shot: mine, save functions, install the nudge hook
+histmine install
 
-# Try them in the current session (fish)
-histmine | source
-
-# Keep one permanently
-histmine > ~/.config/fish/functions/myfunc.fish
-
-# Emit bash/zsh functions instead, mine a specific file, tune thresholds
+# Just mine and print functions, install nothing (defaults to fish history)
 histmine ~/.bash_history --shell bash --min 5 --top 0
 
 # Ask whether a command has a shorter form
 histmine match -- git push origin main
+
+# Remove everything histmine added
+histmine uninstall
 ```
 
-| Flag / command            | Default        | Meaning                                                       |
+| Command / flag            | Default        | Meaning                                                       |
 |---------------------------|----------------|--------------------------------------------------------------|
-| `--min N`                 | `3`            | Require at least N matching history entries to synthesize     |
-| `--top N`                 | `25`           | Emit only the N highest-value functions (`0` = all)          |
-| `--shell fish\|bash\|zsh` | from `$SHELL`  | Target shell syntax for emitted functions and hooks          |
+| `install` / `uninstall`   |                | Set up (or remove) functions, manifest, and the nudge hook   |
 | `match -- <command>`      |                | Suggest the short form if the command is an instance of one  |
-| `--install-hook`          |                | Install the shell hook that nudges you toward mined functions |
-| `--print-hook`            |                | Print the hook snippet instead of installing it              |
+| `--min N`                 | `3`            | Require at least N matching history entries to synthesize     |
+| `--top N`                 | `25`           | Keep only the N highest-value functions (`0` = all)          |
+| `--shell fish\|bash\|zsh` | from `$SHELL`  | Target shell syntax for emitted functions and hooks          |
 
 Value is ranked by estimated keystrokes saved (entries matched against length reduction).
 
