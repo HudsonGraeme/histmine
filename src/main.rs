@@ -32,7 +32,9 @@ fn main() {
                 eprintln!("  mines shell history for repeated command templates and");
                 eprintln!("  emits fish functions to stdout (report on stderr)");
                 eprintln!("  --min N   require at least N matching history entries (default 3)");
-                eprintln!("  --top N   emit only the N highest-value functions, 0 = all (default 25)");
+                eprintln!(
+                    "  --top N   emit only the N highest-value functions, 0 = all (default 25)"
+                );
                 eprintln!("  default file: ~/.local/share/fish/fish_history");
                 eprintln!("  also reads plain bash/zsh history files");
                 exit(0);
@@ -41,8 +43,7 @@ fn main() {
         }
     }
     let path = path.unwrap_or_else(|| {
-        PathBuf::from(env::var("HOME").unwrap_or_default())
-            .join(".local/share/fish/fish_history")
+        PathBuf::from(env::var("HOME").unwrap_or_default()).join(".local/share/fish/fish_history")
     });
     let raw = match history::parse(&path) {
         Ok(r) => r,
@@ -80,14 +81,14 @@ fn main() {
         total_saved
     );
     if found > mined.len() {
-        eprint!(" ({} more suppressed, --top 0 for all)", found - mined.len());
+        eprint!(
+            " ({} more suppressed, --top 0 for all)",
+            found - mined.len()
+        );
     }
     eprintln!();
     if withheld > 0 {
-        eprintln!(
-            "{} templates withheld: constant part looks like a credential",
-            withheld
-        );
+        eprintln!("{withheld} templates withheld: constant part looks like a credential");
     }
     if !mined.is_empty() {
         eprintln!();

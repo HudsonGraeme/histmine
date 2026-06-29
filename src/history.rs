@@ -47,7 +47,7 @@ fn parse_plain(data: &str) -> Vec<String> {
                 return None;
             }
             if let Some(rest) = l.strip_prefix(": ") {
-                return rest.splitn(2, ';').nth(1).map(str::to_string);
+                return rest.split_once(';').map(|x| x.1.to_string());
             }
             Some(l.to_string())
         })

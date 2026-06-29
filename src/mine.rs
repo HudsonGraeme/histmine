@@ -1,4 +1,4 @@
-use crate::tokenize::{tokenize, Quote, Token};
+use crate::tokenize::{Quote, Token, tokenize};
 use std::collections::HashMap;
 
 pub struct Mined {
@@ -46,8 +46,17 @@ pub fn mine(items: &[(String, Vec<Token>)], min_uses: usize) -> (Vec<Mined>, usi
 fn looks_secret(s: &str) -> bool {
     let lower = s.to_lowercase();
     for kw in [
-        "key=", "token=", "secret=", "password=", "passwd=", "bearer ", "authorization:",
-        "ghp_", "github_pat_", "xoxb-", "xoxp-",
+        "key=",
+        "token=",
+        "secret=",
+        "password=",
+        "passwd=",
+        "bearer ",
+        "authorization:",
+        "ghp_",
+        "github_pat_",
+        "xoxb-",
+        "xoxp-",
     ] {
         if lower.contains(kw) {
             return true;
@@ -136,8 +145,8 @@ enum Piece {
 }
 
 enum InnerPiece {
-    Const(String),
-    Param(Vec<String>, Quote),
+    Const(String, bool),
+    Param(Vec<String>, Quote, bool),
 }
 
 fn generalize(
@@ -182,29 +191,40 @@ fn generalize(
 
     let mut key_to_idx: HashMap<&[String], usize> = HashMap::new();
     let mut argv: Vec<&[String]> = Vec::new();
-    let mut rendered = Vec::new();
-    for p in &pieces {
+    let mut body = String::new();
+    for (col, p) in pieces.iter().enumerate() {
+        if col > 0 && toks[0][col].space_before {
+            body.push(' ');
+        }
         match p {
-            Piece::Const(raw) => rendered.push(raw.clone()),
+            Piece::Const(raw) => body.push_str(raw),
             Piece::Param(values) => {
                 let idx = intern(&mut key_to_idx, &mut argv, values);
-                rendered.push(format!("$argv[{}]", idx + 1));
+                body.push_str(&format!("$argv[{}]", idx + 1));
             }
             Piece::Inner(inner) => {
-                let mut parts = Vec::new();
-                for ip in inner {
+                body.push('"');
+                for (j, ip) in inner.iter().enumerate() {
                     match ip {
-                        InnerPiece::Const(raw) => parts.push(raw.clone()),
-                        InnerPiece::Param(values, q) => {
+                        InnerPiece::Const(raw, space) => {
+                            if j > 0 && *space {
+                                body.push(' ');
+                            }
+                            body.push_str(raw);
+                        }
+                        InnerPiece::Param(values, q, space) => {
+                            if j > 0 && *space {
+                                body.push(' ');
+                            }
                             let idx = intern(&mut key_to_idx, &mut argv, values);
-                            parts.push(match q {
+                            body.push_str(&match q {
                                 Quote::Single => format!("'$argv[{}]'", idx + 1),
                                 _ => format!("$argv[{}]", idx + 1),
                             });
                         }
                     }
                 }
-                rendered.push(format!("\"{}\"", parts.join(" ")));
+                body.push('"');
             }
         }
     }
@@ -233,7 +253,7 @@ fn generalize(
 
     Some(Mined {
         name,
-        body: rendered.join(" "),
+        body,
         from_example: items[members[0]].0.clone(),
         try_example,
         n_entries: members.len(),
@@ -242,7 +262,11 @@ fn generalize(
     })
 }
 
-fn try_inner(toks: &[&[Token]], col: usize, const_words: &mut Vec<String>) -> Option<Vec<InnerPiece>> {
+fn try_inner(
+    toks: &[&[Token]],
+    col: usize,
+    const_words: &mut Vec<String>,
+) -> Option<Vec<InnerPiece>> {
     for t in toks {
         let tok = &t[col];
         if tok.quote != Quote::Double || tok.raw != format!("\"{}\"", tok.value) {
@@ -270,7 +294,7 @@ fn try_inner(toks: &[&[Token]], col: usize, const_words: &mut Vec<String>) -> Op
             if !first.op {
                 new_words.push(first.value.clone());
             }
-            pieces.push(InnerPiece::Const(first.raw.clone()));
+            pieces.push(InnerPiece::Const(first.raw.clone(), first.space_before));
         } else {
             if inners.iter().any(|x| x[j].op) {
                 return None;
@@ -281,7 +305,7 @@ fn try_inner(toks: &[&[Token]], col: usize, const_words: &mut Vec<String>) -> Op
             } else {
                 Quote::None
             };
-            pieces.push(InnerPiece::Param(values, q));
+            pieces.push(InnerPiece::Param(values, q, first.space_before));
         }
     }
     if !any_const {
@@ -352,11 +376,7 @@ fn make_name(const_words: &[String], used: &mut HashMap<String, usize>) -> Strin
     }
     let n = used.entry(base.clone()).or_insert(0);
     *n += 1;
-    if *n == 1 {
-        base
-    } else {
-        format!("{}_{}", base, n)
-    }
+    if *n == 1 { base } else { format!("{base}_{n}") }
 }
 
 fn sanitize(w: &str) -> String {
@@ -441,5 +461,22 @@ mod tests {
     fn identical_repeats_yield_nothing() {
         let it = items(&["pnpm run dev", "pnpm run dev", "pnpm run dev"]);
         assert!(mine(&it, 3).0.is_empty());
+    }
+
+    #[test]
+    fn redirect_renders_without_stray_spaces() {
+        let it = items(&[
+            "timeout 30 pop calmar 2>&1 | grep DEBUG",
+            "timeout 45 pop calmar 2>&1 | grep TRACE",
+            "timeout 60 pop calmar 2>&1 | grep WARN",
+        ]);
+        let m = mine(&it, 3).0;
+        assert_eq!(m.len(), 1);
+        assert!(
+            m[0].body.contains("2>&1"),
+            "redirect mangled: {}",
+            m[0].body
+        );
+        assert!(!m[0].body.contains("2 >& 1"));
     }
 }

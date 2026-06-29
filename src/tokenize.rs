@@ -11,14 +11,17 @@ pub struct Token {
     pub value: String,
     pub quote: Quote,
     pub op: bool,
+    pub space_before: bool,
 }
 
 pub fn tokenize(s: &str) -> Option<Vec<Token>> {
     let chars: Vec<char> = s.chars().collect();
     let mut i = 0;
     let mut toks = Vec::new();
+    let mut space_before = false;
     while i < chars.len() {
         if chars[i].is_whitespace() {
+            space_before = true;
             i += 1;
             continue;
         }
@@ -33,7 +36,9 @@ pub fn tokenize(s: &str) -> Option<Vec<Token>> {
                 raw,
                 quote: Quote::None,
                 op: true,
+                space_before,
             });
+            space_before = false;
             continue;
         }
         let start = i;
@@ -56,9 +61,7 @@ pub fn tokenize(s: &str) -> Option<Vec<Token>> {
                                 i += 1;
                                 break;
                             }
-                            '\\' if i + 1 < chars.len()
-                                && matches!(chars[i + 1], '\\' | '\'') =>
-                            {
+                            '\\' if i + 1 < chars.len() && matches!(chars[i + 1], '\\' | '\'') => {
                                 value.push(chars[i + 1]);
                                 i += 2;
                             }
@@ -121,13 +124,11 @@ pub fn tokenize(s: &str) -> Option<Vec<Token>> {
             value,
             quote,
             op: false,
+            space_before,
         });
+        space_before = false;
     }
-    if toks.is_empty() {
-        None
-    } else {
-        Some(toks)
-    }
+    if toks.is_empty() { None } else { Some(toks) }
 }
 
 fn is_op(c: char) -> bool {
@@ -164,5 +165,17 @@ mod tests {
     #[test]
     fn unterminated_quote_rejected() {
         assert!(tokenize("echo \"oops").is_none());
+    }
+
+    #[test]
+    fn redirect_adjacency_tracked() {
+        let t = tokenize("pop 2>&1 | grep x").unwrap();
+        assert_eq!(t[0].raw, "pop");
+        assert_eq!(t[1].raw, "2");
+        assert!(t[1].space_before);
+        assert_eq!(t[2].raw, ">&");
+        assert!(!t[2].space_before);
+        assert_eq!(t[3].raw, "1");
+        assert!(!t[3].space_before);
     }
 }
