@@ -3,7 +3,7 @@ use crate::tokenize::{Quote, Token, tokenize};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Shell {
@@ -407,6 +407,144 @@ pub fn install_hook(shell: Shell, print_only: bool) {
         "histmine: installed {} hook in {} (restart your shell or re-source it)",
         shell.name(),
         path.display()
+    );
+}
+
+const FN_MARKER: &str = "# histmine-managed";
+const FN_BLOCK_OPEN: &str = "# >>> histmine functions >>>";
+const FN_BLOCK_CLOSE: &str = "# <<< histmine functions <<<";
+
+fn fish_functions_dir() -> PathBuf {
+    config_dir().join("fish/functions")
+}
+
+fn posix_functions_file() -> PathBuf {
+    data_dir().join("histmine/functions.sh")
+}
+
+// Persist mined functions where the shell will autoload them, so the nudge gate
+// (function must be defined) passes in every new shell. Returns (written, skipped),
+// where skipped are fish files that already exist and were not written by histmine.
+pub fn install_functions(mined: &[Mined], shell: Shell) -> Result<(usize, Vec<String>), String> {
+    match shell {
+        Shell::Fish => {
+            let dir = fish_functions_dir();
+            fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            let mut written = 0;
+            let mut skipped = Vec::new();
+            for m in mined {
+                let path = dir.join(format!("{}.fish", m.name));
+                if let Ok(existing) = fs::read_to_string(&path)
+                    && !existing.contains(FN_MARKER)
+                {
+                    skipped.push(m.name.clone());
+                    continue;
+                }
+                let content = format!(
+                    "{FN_MARKER}\n{}\n",
+                    render_function(&m.name, &m.body, shell)
+                );
+                fs::write(&path, content).map_err(|e| e.to_string())?;
+                written += 1;
+            }
+            Ok((written, skipped))
+        }
+        Shell::Bash | Shell::Zsh => {
+            let file = posix_functions_file();
+            if let Some(p) = file.parent() {
+                fs::create_dir_all(p).map_err(|e| e.to_string())?;
+            }
+            let mut content = format!("{FN_MARKER}\n");
+            for m in mined {
+                content.push_str(&render_function(&m.name, &m.body, shell));
+                content.push_str("\n\n");
+            }
+            fs::write(&file, content).map_err(|e| e.to_string())?;
+            ensure_rc_sources(shell, &file)?;
+            Ok((mined.len(), Vec::new()))
+        }
+    }
+}
+
+fn ensure_rc_sources(shell: Shell, file: &Path) -> Result<(), String> {
+    let rc = rc_path(shell);
+    let existing = fs::read_to_string(&rc).unwrap_or_default();
+    if existing.contains(FN_BLOCK_OPEN) {
+        return Ok(());
+    }
+    let f = file.display();
+    let block = format!("{FN_BLOCK_OPEN}\n[ -f \"{f}\" ] && . \"{f}\"\n{FN_BLOCK_CLOSE}\n");
+    let mut content = existing;
+    if !content.is_empty() && !content.ends_with('\n') {
+        content.push('\n');
+    }
+    content.push_str(&block);
+    fs::write(&rc, content).map_err(|e| e.to_string())
+}
+
+fn strip_blocks(text: &str) -> String {
+    let mut out = String::new();
+    let mut skipping = false;
+    for line in text.lines() {
+        let t = line.trim();
+        if t == MARKER_OPEN || t == FN_BLOCK_OPEN {
+            skipping = true;
+            continue;
+        }
+        if t == MARKER_CLOSE || t == FN_BLOCK_CLOSE {
+            skipping = false;
+            continue;
+        }
+        if !skipping {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
+// Reverse install: remove the hook, every histmine-managed function, and the manifest.
+pub fn uninstall(shell: Shell) {
+    let mut removed = 0;
+    match shell {
+        Shell::Fish => {
+            let hook = config_dir().join("fish/conf.d/histmine.fish");
+            if fs::remove_file(&hook).is_ok() {
+                removed += 1;
+            }
+            if let Ok(rd) = fs::read_dir(fish_functions_dir()) {
+                for entry in rd.flatten() {
+                    let p = entry.path();
+                    if p.extension().and_then(|e| e.to_str()) == Some("fish")
+                        && fs::read_to_string(&p)
+                            .map(|c| c.contains(FN_MARKER))
+                            .unwrap_or(false)
+                        && fs::remove_file(&p).is_ok()
+                    {
+                        removed += 1;
+                    }
+                }
+            }
+        }
+        Shell::Bash | Shell::Zsh => {
+            let rc = rc_path(shell);
+            if let Ok(existing) = fs::read_to_string(&rc) {
+                let stripped = strip_blocks(&existing);
+                if stripped != existing {
+                    let _ = fs::write(&rc, stripped);
+                    removed += 1;
+                }
+            }
+            if fs::remove_file(posix_functions_file()).is_ok() {
+                removed += 1;
+            }
+        }
+    }
+    let _ = fs::remove_file(manifest_path());
+    eprintln!(
+        "histmine: uninstalled ({} {} removed); restart your shell to clear loaded definitions",
+        removed,
+        if removed == 1 { "item" } else { "items" }
     );
 }
 
