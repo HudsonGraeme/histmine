@@ -391,7 +391,7 @@ fn sanitize(w: &str) -> String {
     out.trim_matches('_').to_string()
 }
 
-fn quoted_arg(v: &str) -> String {
+pub(crate) fn quoted_arg(v: &str) -> String {
     if !v.is_empty()
         && v.chars()
             .all(|c| c.is_ascii_alphanumeric() || "_-./:@=+,~".contains(c))
