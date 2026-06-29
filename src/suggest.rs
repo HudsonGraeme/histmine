@@ -388,11 +388,11 @@ pub fn install_hook(shell: Shell, print_only: bool) {
         );
         return;
     }
-    if let Some(parent) = path.parent() {
-        if let Err(e) = fs::create_dir_all(parent) {
-            eprintln!("histmine: cannot create {}: {e}", parent.display());
-            return;
-        }
+    if let Some(parent) = path.parent()
+        && let Err(e) = fs::create_dir_all(parent)
+    {
+        eprintln!("histmine: cannot create {}: {e}", parent.display());
+        return;
     }
     let mut content = existing;
     if !content.is_empty() && !content.ends_with('\n') {

@@ -98,10 +98,10 @@ fn run_mine(args: &[String]) {
         if cmd.contains('\n') {
             continue;
         }
-        if let Some(toks) = tokenize::tokenize(&cmd) {
-            if toks.len() >= 3 {
-                items.push((cmd, toks));
-            }
+        if let Some(toks) = tokenize::tokenize(&cmd)
+            && toks.len() >= 3
+        {
+            items.push((cmd, toks));
         }
     }
     let (mut mined, withheld) = mine::mine(&items, min);
